@@ -28,6 +28,8 @@ public class AdaptiveNavigator: UISplitViewController {
   required init?(coder: NSCoder) {
     fatalError("init(coder:) has not been implemented")
   }
+
+  private var stackForExpanding: [UIViewController] = []
 }
 
 extension AdaptiveNavigator {
@@ -36,11 +38,10 @@ extension AdaptiveNavigator {
     preferredDisplayMode = .oneBesideSecondary
     preferredSplitBehavior = .tile
     view.backgroundColor = .systemBackground
-    
-    embeddedTabBarController.delegate = self
+
     setViewController(embeddedTabBarController, for: .primary)
     setViewController(makeSecondaryStack(), for: .secondary)
-    
+
     minimumPrimaryColumnWidth = 320
     maximumPrimaryColumnWidth = 320
   }
@@ -53,21 +54,20 @@ extension AdaptiveNavigator {
 public extension AdaptiveNavigator {
   override func showDetailViewController(_ vc: UIViewController, sender: Any?) {
     if isCollapsed {
-      
       guard
         viewControllers.count >= 1,
         let navController = viewControllers[0] as? EmbeddedTabBarController else { return }
-      navController.pushViewController(vc, animated: true)
-      navController.hideTabBar()
-      
+      navController.rawPushViewController(vc, animated: true)
+
     } else {
-      
       guard
         viewControllers.count >= 2,
+        let primary = viewControllers[0] as? EmbeddedTabBarController,
         let navController = viewControllers[1] as? UINavigationController else { return }
 
       let isPlaceholderTop = navController.topViewController is Placeholder
       let isFromPrimary = (sender as? UIViewController) == (viewControllers[0] as? EmbeddedTabBarController)?.selectedViewController
+        || (sender as? EmbeddedTabBarController === primary)
 
       if isFromPrimary {
         navController.popToRootViewController(animated: false)
@@ -79,6 +79,7 @@ public extension AdaptiveNavigator {
 }
 
 extension AdaptiveNavigator: UISplitViewControllerDelegate {
+  // Collapse
   public func splitViewController(_ svc: UISplitViewController, topColumnForCollapsingToProposedTopColumn proposedTopColumn: UISplitViewController.Column) -> UISplitViewController.Column {
     guard
       svc.viewControllers.count >= 2,
@@ -87,40 +88,34 @@ extension AdaptiveNavigator: UISplitViewControllerDelegate {
     else { return .primary }
 
     secondary.popToRootViewController(animated: false)?.forEach {
-      primary.pushViewController($0, animated: false)
+      primary.rawPushViewController($0, animated: false)
     }
-    
-    if primary.viewControllers.count > 1 {
-      primary.hideTabBar()
-    }
-    
+
     return .primary
+  }
+
+  // Expand
+  public func splitViewController(_ svc: UISplitViewController, displayModeForExpandingToProposedDisplayMode proposedDisplayMode: UISplitViewController.DisplayMode) -> UISplitViewController.DisplayMode {
+    guard
+      let primary = svc.viewControllers[0] as? EmbeddedTabBarController
+    else { return .oneBesideSecondary }
+
+    primary.popToRootViewController(animated: false)?.forEach {
+      stackForExpanding.append($0)
+    }
+
+    return .oneBesideSecondary
   }
 
   public func splitViewControllerDidExpand(_ svc: UISplitViewController) {
     guard
       svc.viewControllers.count >= 2,
-      let primary = svc.viewControllers[0] as? EmbeddedTabBarController,
       let secondary = svc.viewControllers[1] as? UINavigationController
     else { return }
 
-    primary.popToRootViewController(animated: false)?.forEach {
+    stackForExpanding.forEach {
       secondary.pushViewController($0, animated: false)
     }
-    
-    primary.showTabBar()
-  }
-}
-
-extension AdaptiveNavigator: UINavigationControllerDelegate {
-  public func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
-    if isCollapsed {
-      guard
-        viewControllers.count == 1,
-        let controller = viewControllers[0] as? EmbeddedTabBarController else { return }
-      if controller.viewControllers.count == 1 {
-        controller.showTabBar()
-      }
-    }
+    stackForExpanding = []
   }
 }

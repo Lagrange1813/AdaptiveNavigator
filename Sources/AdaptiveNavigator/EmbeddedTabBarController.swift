@@ -8,8 +8,20 @@
 import UIKit
 
 public class EmbeddedTabBarController: UINavigationController {
-  public init() {
+  public enum NavigationMode {
+    /// Used for integration with SplitView
+    case embedded
+    case alone
+  }
+  
+  let navigationMode: NavigationMode
+  public weak var navigator: AdaptiveNavigator?
+  
+  public init(mode: NavigationMode, navigator: AdaptiveNavigator? = nil) {
+    self.navigationMode = mode
+    self.navigator = navigator
     super.init(nibName: nil, bundle: nil)
+    delegate = self
   }
   
   @available(*, unavailable)
@@ -17,7 +29,7 @@ public class EmbeddedTabBarController: UINavigationController {
     fatalError("init(coder:) has not been implemented")
   }
   
-  private var offset: CGFloat {
+  var offset: CGFloat {
     let device = UIDevice.current.userInterfaceIdiom
     switch device {
       case .phone:
@@ -46,9 +58,9 @@ public class EmbeddedTabBarController: UINavigationController {
     }
   }
 
-  private var topConstraint: NSLayoutConstraint?
-  private let tabBar = UITabBar()
-  private var isTabBarHidden = false
+  var topConstraint: NSLayoutConstraint?
+  let tabBar = UITabBar()
+  var isTabBarHidden = false
   
   /// The currently selected view controller.
   public var selectedViewController: UIViewController? {
@@ -99,14 +111,34 @@ public class EmbeddedTabBarController: UINavigationController {
   
   public weak var tabBarDelegate: EmbeddedTabBarControllerDelegate?
   
+  var countOfViewControllers: Int = 0 {
+    didSet {
+      if countOfViewControllers <= 1 {
+        showTabBar()
+      } else {
+        hideTabBar()
+      }
+    }
+  }
+  
   override public func viewDidLoad() {
     super.viewDidLoad()
     configure()
     layout()
   }
   
+  override public func viewWillLayoutSubviews() {
+    super.viewWillLayoutSubviews()
+    if countOfViewControllers == 1 {
+      for viewController in tabBarViewControllers {
+        viewController.additionalSafeAreaInsets = UIEdgeInsets(top: 0, left: 0, bottom: offset, right: 0)
+      }
+    }
+  }
+  
   override public func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
     super.viewWillTransition(to: size, with: coordinator)
+    topConstraint?.constant = -offset
   }
 }
 
@@ -114,6 +146,7 @@ extension EmbeddedTabBarController {
   func configure() {
     view.backgroundColor = .systemBackground
     tabBar.delegate = self
+    tabBar.isTranslucent = true
   }
   
   func layout() {
@@ -130,51 +163,5 @@ extension EmbeddedTabBarController {
       topConstraint,
       tabBar.bottomAnchor.constraint(equalTo: view.bottomAnchor)
     ])
-  }
-}
-
-extension EmbeddedTabBarController: UITabBarDelegate {
-  public func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-    let viewController = tabBarViewControllers[tabBar.items?.firstIndex(of: item) ?? 0]
-    
-    if
-      let tabBarDelegate = tabBarDelegate,
-      tabBarDelegate.responds(to: #selector(tabBarDelegate.tabBarController(_:shouldSelect:)))
-    {
-      if tabBarDelegate.tabBarController?(self, shouldSelect: viewController) ?? true {
-        replaceContent(with: viewController)
-      } else {
-        tabBar.selectedItem = (selectedIndex != nil) ? tabBar.items?[selectedIndex ?? 0] : nil
-      }
-    } else {
-      replaceContent(with: viewController)
-    }
-    
-    tabBarDelegate?.tabBarController?(self, didSelect: viewController)
-  }
-  
-  private func replaceContent(with viewController: UIViewController) {
-    setViewControllers([viewController], animated: false)
-    selectedViewController = viewController
-  }
-}
-
-extension EmbeddedTabBarController {
-  public func hideTabBar() {
-    if isTabBarHidden { return }
-    isTabBarHidden = true
-    
-    UIView.animate(withDuration: 0.25) { [unowned self] in
-      tabBar.alpha = 0
-    }
-  }
-  
-  public func showTabBar() {
-    if !isTabBarHidden { return }
-    isTabBarHidden = false
-    
-    UIView.animate(withDuration: 0.25) { [unowned self] in
-      tabBar.alpha = 1
-    }
   }
 }
